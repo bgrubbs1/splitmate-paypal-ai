@@ -1,0 +1,132 @@
+{
+  "_comment": "Deterministic output of the built-in rule-based parser for samples/demo-plan.txt (mock mode). Used by docs/tests as the reference demo.",
+  "plan": {
+    "title": "Cabin weekend",
+    "currency": "USD",
+    "participants": [
+      "Alex",
+      "Sam",
+      "Priya",
+      "Jordan"
+    ],
+    "expenses": [
+      {
+        "description": "Cabin",
+        "amount_cents": 62000,
+        "paid_by": "Alex",
+        "shared_by": [
+          "Alex",
+          "Sam",
+          "Priya",
+          "Jordan"
+        ],
+        "note": "Sam only shares Cabin and Gas"
+      },
+      {
+        "description": "Groceries",
+        "amount_cents": 18000,
+        "paid_by": "Priya",
+        "shared_by": [
+          "Alex",
+          "Priya",
+          "Jordan"
+        ],
+        "note": "Sam left early and is excluded"
+      },
+      {
+        "description": "Gas",
+        "amount_cents": 9500,
+        "paid_by": "Priya",
+        "shared_by": [
+          "Alex",
+          "Sam",
+          "Priya",
+          "Jordan"
+        ],
+        "note": "Sam only shares Cabin and Gas"
+      },
+      {
+        "description": "Firewood",
+        "amount_cents": 4000,
+        "paid_by": "Jordan",
+        "shared_by": [
+          "Alex",
+          "Priya",
+          "Jordan"
+        ],
+        "note": "Sam left early and is excluded"
+      },
+      {
+        "description": "Wine",
+        "amount_cents": 9000,
+        "paid_by": "Alex",
+        "shared_by": [
+          "Alex",
+          "Priya"
+        ],
+        "note": "Split between Alex and Priya"
+      }
+    ],
+    "notes": [
+      "Sam left Saturday morning, so he only shares the cabin and gas.",
+      "Jordan skipped the wine."
+    ],
+    "source": "rules"
+  },
+  "split": {
+    "total_cents": 102500,
+    "participants": [
+      {
+        "name": "Alex",
+        "share_cents": 29709,
+        "paid_cents": 71000,
+        "net_cents": 41291,
+        "status": "credit"
+      },
+      {
+        "name": "Sam",
+        "share_cents": 17875,
+        "paid_cents": 0,
+        "net_cents": -17875,
+        "status": "owes"
+      },
+      {
+        "name": "Priya",
+        "share_cents": 29708,
+        "paid_cents": 27500,
+        "net_cents": -2208,
+        "status": "owes"
+      },
+      {
+        "name": "Jordan",
+        "share_cents": 25208,
+        "paid_cents": 4000,
+        "net_cents": -21208,
+        "status": "owes"
+      }
+    ],
+    "orders": [
+      {
+        "name": "Sam",
+        "amount_cents": 17875
+      },
+      {
+        "name": "Priya",
+        "amount_cents": 2208
+      },
+      {
+        "name": "Jordan",
+        "amount_cents": 21208
+      }
+    ],
+    "totals": {
+      "expenses_cents": 102500,
+      "orders_cents": 41291,
+      "credits_cents": 41291,
+      "balanced": true
+    },
+    "rounding_notes": [
+      "Firewood $40.00 split 3 ways: 1 participant(s) pay 1 cent more (largest-remainder rounding, 1 cent remainder)."
+    ]
+  }
+}

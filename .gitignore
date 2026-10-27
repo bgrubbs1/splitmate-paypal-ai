@@ -1,0 +1,26 @@
+# Secrets and local config -- never commit these.
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.python-version
+
+# Tooling / editors
+.pytest_cache/
+.coverage
+htmlcov/
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Logs and local smoke output
+*.log
+/tmp/

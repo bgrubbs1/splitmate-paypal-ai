@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SplitMate — AI group-expense agent for PayPal</title>
+<meta name="description" content="Paste a messy group plan. SplitMate works out a fair split, explains the math, and turns each person's share into a PayPal sandbox order.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2300d4a0'/%3E%3Cpath d='M20 40 L32 18 L44 40' stroke='%23062019' stroke-width='6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='32' cy='46' r='4' fill='%23062019'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="/" aria-label="SplitMate home">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 64 64" width="30" height="30"><rect width="64" height="64" rx="16" fill="#00d4a0"/><path d="M20 40 L32 18 L44 40" stroke="#062019" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="32" cy="46" r="4" fill="#062019"/></svg>
+      </span>
+      <span class="brand-name">Split<span>Mate</span></span>
+    </a>
+    <nav class="topbar-actions" aria-label="Status and links">
+      <span id="mode-pill" class="pill pill-muted" title="Which integrations are active">
+        <span class="dot" aria-hidden="true"></span><span id="mode-text">checking mode…</span>
+      </span>
+      <a class="ghost-link" href="https://developer.paypal.com/" target="_blank" rel="noopener noreferrer">PayPal Developer ↗</a>
+      <a class="ghost-link" href="https://paypalaihackathon.devpost.com/" target="_blank" rel="noopener noreferrer">Hackathon ↗</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ============================ HERO / INPUT ============================ -->
+  <section class="hero" id="hero-section" aria-labelledby="hero-title">
+    <div class="hero-copy">
+      <p class="eyebrow">PayPal AI Hackathon · sandbox build</p>
+      <h1 id="hero-title">Paste the group chat.<br><span class="grad">Get everyone paid back.</span></h1>
+      <p class="lede">
+        SplitMate reads a messy plan, figures out a fair split — including who left early —
+        explains the math, and turns each person's share into a PayPal order.
+      </p>
+      <ol class="steps" aria-label="How it works">
+        <li><span class="step-num">1</span><span><strong>Paste</strong> the plan in plain English.</span></li>
+        <li><span class="step-num">2</span><span><strong>Approve</strong> the AI's itemised split.</span></li>
+        <li><span class="step-num">3</span><span><strong>Collect</strong> with PayPal checkout links.</span></li>
+      </ol>
+      <p class="micro">
+        Runs offline in mock mode with zero accounts. Add sandbox credentials for real
+        PayPal Orders v2 orders. Nothing is persisted; no personal data leaves your machine.
+      </p>
+    </div>
+
+    <div class="card input-card">
+      <div class="card-head">
+        <h2>Your event plan</h2>
+        <span class="tag" id="parser-tag">AI parse</span>
+      </div>
+      <label class="sr-only" for="plan-input">Event plan text</label>
+      <textarea id="plan-input" rows="9" spellcheck="false"
+        placeholder="Cabin weekend for 4: Alex, Sam, Priya and Jordan. Cabin $620 paid by Alex. Groceries $180 paid by Priya. Gas $95 paid by Priya. Firewood $40 paid by Jordan. Wine $90 paid by Alex, split between Alex and Priya only. Sam left Saturday morning, so he only shares the cabin and gas. Jordan skipped the wine."></textarea>
+      <div class="input-actions">
+        <button id="parse-btn" class="btn btn-primary" type="button">Parse with AI <span class="kbd">⌘⏎</span></button>
+        <button id="demo-btn" class="btn btn-secondary" type="button">Load demo plan</button>
+        <button id="how-btn" class="btn btn-ghost" type="button">How it works</button>
+      </div>
+      <p id="parse-status" class="status-line" role="status" aria-live="polite"></p>
+      <div class="model-note">
+        <span class="dot dot-mint" aria-hidden="true"></span>
+        <span id="model-note-text">Mock mode uses a deterministic parser — the same plan always produces the same split.</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ EDITOR ============================ -->
+  <section id="editor" class="panel hidden" aria-labelledby="editor-title">
+    <div class="panel-head">
+      <div>
+        <h2 id="editor-title"><span class="section-index">2</span> Check the parsed plan</h2>
+        <p class="sub">The AI's work is editable. Fix a payer, add someone, drop an item — then recalculate.</p>
+      </div>
+      <div class="panel-head-actions">
+        <button id="recalc-btn" class="btn btn-secondary" type="button">Recalculate split</button>
+        <button id="create-btn" class="btn btn-primary" type="button">Create PayPal orders</button>
+      </div>
+    </div>
+
+    <div id="warnings" class="warnings hidden" role="status" aria-live="polite"></div>
+
+    <div class="editor-grid">
+      <div class="editor-block">
+        <div class="block-head">
+          <h3>Participants</h3>
+          <button id="add-participant" class="mini-btn" type="button">+ Add person</button>
+        </div>
+        <div id="participants" class="chips"></div>
+        <div class="block-head">
+          <h3>Expenses</h3>
+          <button id="add-expense" class="mini-btn" type="button">+ Add expense</button>
+        </div>
+        <div id="expenses" class="expense-editor"></div>
+        <div id="ai-notes" class="ai-notes hidden">
+          <h4>Notes the parser picked up</h4>
+          <ul id="ai-notes-list"></ul>
+        </div>
+      </div>
+
+      <aside class="editor-block reasoning-block">
+        <div class="block-head">
+          <h3>Fair-split reasoning</h3>
+        </div>
+        <ul id="reasoning-list" class="reason-list"></ul>
+        <div id="rounding-note" class="callout hidden"></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================ PREVIEW ============================ -->
+  <section id="preview" class="panel hidden" aria-labelledby="preview-title">
+    <div class="panel-head">
+      <div>
+        <h2 id="preview-title"><span class="section-index">3</span> The fair split</h2>
+        <p class="sub">Net positions after everyone's share is netted against what they fronted. Only net debtors get a PayPal order — the smallest set of payments that settles the group.</p>
+      </div>
+      <div class="panel-head-actions">
+        <button id="preview-create-btn" class="btn btn-primary" type="button">Create PayPal orders</button>
+      </div>
+    </div>
+
+    <div id="preview-totals" class="totals-strip"></div>
+    <div id="person-cards" class="person-grid"></div>
+
+    <div class="two-col">
+      <div class="editor-block">
+        <div class="block-head"><h3>Itemised split</h3></div>
+        <div id="split-table" class="split-table"></div>
+      </div>
+      <div class="editor-block">
+        <div class="block-head"><h3>How we got there</h3></div>
+        <ul id="preview-reasoning" class="reason-list"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ DASHBOARD ============================ -->
+  <section id="dashboard" class="panel hidden" aria-labelledby="dashboard-title">
+    <div class="panel-head">
+      <div>
+        <h2 id="dashboard-title"><span class="section-index">4</span> Collect with PayPal</h2>
+        <p class="sub" id="dashboard-sub">One PayPal order per person who owes. Share the link, then capture when they've paid.</p>
+      </div>
+      <div class="panel-head-actions">
+        <button id="sync-all-btn" class="btn btn-secondary" type="button">Sync all</button>
+        <button id="capture-all-btn" class="btn btn-primary" type="button">Capture approved</button>
+        <button id="new-split-btn" class="btn btn-ghost" type="button">New split</button>
+      </div>
+    </div>
+
+    <div id="dashboard-totals" class="totals-strip"></div>
+    <div id="dashboard-note" class="callout hidden"></div>
+    <div id="share-rows" class="share-rows"></div>
+
+    <p class="footnote">
+      Sandbox only — no real money moves. SplitMate stores this event in memory and never
+      writes names or payment data to disk. Restarting the app clears the dashboard.
+    </p>
+  </section>
+
+  <!-- ============================ HOW IT WORKS ============================ -->
+  <section id="how" class="panel how-panel" aria-labelledby="how-title">
+    <div class="panel-head">
+      <div>
+        <h2 id="how-title">How SplitMate uses AI + PayPal</h2>
+        <p class="sub">Two AI steps, one payment platform, no hand-waving.</p>
+      </div>
+    </div>
+    <div class="feature-grid">
+      <article class="feature">
+        <span class="feature-icon" aria-hidden="true">✦</span>
+        <h3>AI parsing</h3>
+        <p>An OpenAI-compatible model turns free text into a strict JSON plan: participants, items, amounts, who paid, and participation caveats. A deterministic rule-based parser handles offline mode and any AI failure.</p>
+      </article>
+      <article class="feature">
+        <span class="feature-icon" aria-hidden="true">≈</span>
+        <h3>Fair-split math</h3>
+        <p>Each item is allocated in integer cents with largest-remainder rounding, so totals always reconcile to the penny. Partial attendance produces per-item exclusions, and netting means one payment per debtor.</p>
+      </article>
+      <article class="feature">
+        <span class="feature-icon" aria-hidden="true">◇</span>
+        <h3>PayPal Orders v2</h3>
+        <p>OAuth2 client-credentials auth, one order per debtor via <code>/v2/checkout/orders</code>, hosted checkout links, then <code>capture</code> once approved. Statuses are tracked per share, with AI-drafted reminders.</p>
+      </article>
+    </div>
+    <div class="mode-explain">
+      <div>
+        <span class="tag tag-mint">Mock mode (default)</span>
+        <p>Deterministic offline PayPal + AI stand-ins. Perfect for judges: <code>python3 app.py</code> and click through the whole flow with no accounts or network.</p>
+      </div>
+      <div>
+        <span class="tag tag-violet">Real sandbox mode</span>
+        <p>Add <code>PAYPAL_CLIENT_ID</code> / <code>PAYPAL_CLIENT_SECRET</code> (and an LLM key) to <code>.env</code>. SplitMate then creates real Orders v2 orders in your PayPal sandbox and redirects to PayPal's sandbox checkout.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="footer-inner">
+    <span>SplitMate · built for the <a href="https://paypalaihackathon.devpost.com/" target="_blank" rel="noopener noreferrer">PayPal AI Hackathon</a></span>
+    <span id="footer-mode" class="footer-mode">mode: —</span>
+    <span>MIT licensed · Python 3.9+ standard library · no trackers</span>
+  </div>
+</footer>
+
+<div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3 id="modal-title">AI-drafted reminder</h3>
+      <button id="modal-close" class="modal-close" type="button" aria-label="Close">×</button>
+    </div>
+    <p class="sub" id="modal-sub"></p>
+    <textarea id="modal-text" rows="6" readonly></textarea>
+    <div class="modal-actions">
+      <button id="modal-copy" class="btn btn-primary" type="button">Copy message</button>
+      <button id="modal-done" class="btn btn-secondary" type="button">Done</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
