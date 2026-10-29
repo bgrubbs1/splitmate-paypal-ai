@@ -204,6 +204,37 @@ class MockServerTests(unittest.TestCase):
         self.assertIn("Sam", body["message"])
         self.assertIn("$178.75", body["message"])
 
+    def test_keep_alive_stays_in_sync_after_ignored_bodies(self):
+        # Regression: POST routes that ignore the body must still consume it,
+        # otherwise a keep-alive connection desyncs and the next request 501s.
+        import http.client
+
+        event = self._create_event()
+        address = self.app.server.server_address
+        conn = http.client.HTTPConnection(address[0], address[1], timeout=10)
+        try:
+            conn.request(
+                "POST",
+                "/api/events/{}/sync".format(event["id"]),
+                body=b"{}",
+                headers={"Content-Type": "application/json"},
+            )
+            response = conn.getresponse()
+            self.assertEqual(response.status, 200)
+            response.read()
+            conn.request(
+                "POST",
+                "/api/events/{}/reminders".format(event["id"]),
+                body=json.dumps({"name": "Sam"}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+            )
+            response = conn.getresponse()
+            payload = json.loads(response.read())
+            self.assertEqual(response.status, 200)
+            self.assertIn("Sam", payload["message"])
+        finally:
+            conn.close()
+
     def test_unknown_event_and_share_are_404(self):
         status, _, _ = http("GET", self.url("/api/events/evt_nope"))
         self.assertEqual(status, 404)

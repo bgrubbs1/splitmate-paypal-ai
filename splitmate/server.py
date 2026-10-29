@@ -191,6 +191,7 @@ class SplitMateHandler(BaseHTTPRequestHandler):
             return
         match = EVENT_SHARE_RE.match(path)
         if match:
+            self._drain_body()
             event_id = self._decode(match.group(1))
             name = self._decode(match.group(2))
             action = match.group(3)
@@ -208,8 +209,10 @@ class SplitMateHandler(BaseHTTPRequestHandler):
             action = match.group(2)
             service = self._service()
             if action == "sync":
+                self._drain_body()
                 self._send_json(200, service.sync_all(event_id))
             elif action == "capture-approved":
+                self._drain_body()
                 self._send_json(200, service.capture_approved(event_id))
             else:
                 body = self._read_json()
@@ -259,6 +262,18 @@ class SplitMateHandler(BaseHTTPRequestHandler):
         if not isinstance(value, dict):
             raise HttpError(400, "Request body must be a JSON object.")
         return value
+
+    def _drain_body(self) -> None:
+        """Consume a request body this route ignores so keep-alive stays in sync."""
+        raw_length = self.headers.get("Content-Length")
+        try:
+            length = int(raw_length) if raw_length else 0
+        except (TypeError, ValueError):
+            length = 0
+        if length < 0 or length > MAX_BODY_BYTES:
+            raise HttpError(400, "Invalid Content-Length header.")
+        if length:
+            self.rfile.read(length)
 
     # -- static files ------------------------------------------------------
     def _send_static(self, relative: str, cache: bool) -> None:
