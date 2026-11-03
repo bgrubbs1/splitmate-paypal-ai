@@ -1,6 +1,8 @@
 # SplitMate
 
-**Paste the group chat. Get everyone paid back.**
+**Prototype status:** the demo and validation are offline, using simulated checkout and local fake PayPal/model services. The sandbox and model adapters are implemented, but genuine sandbox capture, buyer redirects and external-model behavior have not been verified. Payment-flow descriptions below explain intended configured behavior, not completed live-provider tests.
+
+**Turn a group-expense plan into an explained split and a sandbox payment workflow.**
 
 SplitMate is an AI group-expense agent: paste a messy natural-language event plan, and it
 parses the participants, items, amounts and "who left early" caveats, proposes a fair
@@ -13,8 +15,8 @@ prototype that integrates **PayPal's developer platform (sandbox)** and an **AI 
 
 - **Runs with zero dependencies:** Python 3.9+ standard library only, single-page vanilla JS UI. No pip, no npm, no build step.
 - **Runs offline by default:** mock mode includes a deterministic AI parser fallback and a simulated PayPal checkout, so judges can click through the whole flow with no accounts, no keys and no network.
-- **Real when you want it:** add PayPal sandbox credentials (and optionally an LLM key) to `.env`; the app then creates genuine Orders v2 orders and redirects to PayPal's sandbox checkout.
-- **Tested:** `python3 -m unittest` → 151 tests; `bash scripts/smoke.sh` → 56 scripted end-to-end assertions covering mock mode **and** the real HTTP path against a local fake PayPal/LLM server.
+- **Sandbox adapter implemented, live validation pending:** configuration supports PayPal sandbox credentials and an optional LLM key. Tests use local fake services; genuine PayPal checkout/capture and external-model behavior have not been verified.
+- **Tested:** `python3 -m unittest` → 179 tests; `bash scripts/smoke.sh` → 56 scripted end-to-end assertions covering mock mode **and** the real HTTP path against a local fake PayPal/LLM server.
 
 ![SplitMate](docs/cover.png)
 
@@ -83,7 +85,7 @@ machine in mock mode.
 Run the test suite and the one-command smoke proof:
 
 ```bash
-python3 -m unittest discover -s tests -t .   # 151 tests
+python3 -m unittest discover -s tests -t .   # 179 tests
 bash scripts/smoke.sh                        # or: make smoke   (56 assertions)
 ```
 
@@ -240,7 +242,7 @@ contest-entries/paypal/
 ├── samples/                    # deterministic demo plan + expected split
 ├── scripts/smoke.sh            # one-command end-to-end proof
 ├── scripts/smoke_client.py     # scripted smoke assertions
-├── tests/                      # 151 unittest tests
+├── tests/                      # 179 unittest tests
 ├── docs/screenshots/           # app screenshots (also handy as a Devpost thumbnail)
 ├── README.md · SUBMISSION.md · RUNBOOK.md · RULES-NOTES.md
 ├── LICENSE (MIT) · .env.example · .gitignore · Makefile
@@ -288,16 +290,16 @@ and `Referrer-Policy: no-referrer`.
 - **Making a hackathon demo that "just runs".** Zero dependencies, offline mock mode,
   one-command smoke test, deterministic sample plan. Reviewers shouldn't have to install
   anything or own a PayPal account to see the product work.
-- **No PII, no secrets, no sloppy logs.** Event data is in memory only; the browser never
+- **Limited in-memory personal data.** Plans and participant names can contain personal data. Event data is in memory only; the browser never
   sees credentials; API errors are sanitised; `.env` is gitignored; test/smoke requests run
   against local fakes instead of real accounts.
 
 ## Accomplishments
 
-- A complete, working product loop: natural language → validated plan → editable fair split
-  → real **PayPal Orders v2** orders → hosted checkout links → status sync → capture →
-  AI reminder. Not a mockup: the same service code drives real sandbox API calls.
-- 151 stdlib `unittest` tests and a 56-assertion smoke script that prove both the offline
+- An offline-demonstrated product loop: plan → validated structure → editable fair split
+  → simulated checkout → status sync → simulated capture → reminder template.
+  PayPal Orders v2 and model adapters are implemented but genuine provider behavior remains unverified.
+- 179 stdlib `unittest` tests and a 56-assertion smoke script that exercise the offline
   demo and the real-mode HTTP path (OAuth header, order payload, capture flow, 409 before
   approval, token caching, error sanitisation) against a local fake PayPal/LLM server.
 - A split engine that always reconciles to the cent, explains every line, and turns a
@@ -350,7 +352,7 @@ and `Referrer-Policy: no-referrer`.
 ## Testing
 
 ```bash
-# 151 tests across plan validation, split math, parsers (incl. LLM + fallbacks),
+# 179 tests across plan validation, split math, parsers (incl. LLM + fallbacks),
 # PayPal request shapes/OAuth/capture/errors, HTTP endpoints and security hardening.
 python3 -m unittest discover -s tests -t . -v
 
@@ -377,16 +379,18 @@ What the tests cover, briefly:
 
 - No accounts, no analytics, no trackers, no third-party frontend resources.
 - Event data (names, amounts) lives in memory only; nothing is persisted to disk. Restart = wipe.
-- PayPal capture responses are normalised down to `capture_id` / `status` — payer email and
-  address from PayPal's response are never stored or displayed.
+- Capture observations retain selected order/capture IDs, statuses, amounts, currencies and validation diagnostics in memory. Payer email/address fields are not copied. Nonfinite numbers and object/array values in scalar evidence fields become typed markers; see [capture contract](docs/CAPTURE-OUTCOMES.md).
 - Credentials come from environment variables / a gitignored `.env`; they are never logged,
   never returned by `/api/health`, and redacted from error messages.
 - The LLM receives only the plan text or reminder context you submit; keys stay server-side.
 - Mock mode makes no network calls at all.
-- Sandbox only: this is a hackathon prototype, not a production payment product. It does not
+- Intended for sandbox use only: endpoint configuration is not a hard sandbox enforcement boundary. Do not configure production endpoints. This hackathon prototype does not
   handle refunds, disputes, webhooks or payouts.
 
 ## Limitations / unverified details
+
+- **Verification boundary:** 179 Python tests, 56 local fake-service smoke assertions and 23 UI logic tests exercise implemented behavior. They are not evidence of genuine PayPal sandbox approval/capture, external LLM quality, or browser visual QA.
+- **Capture safety:** pending, failed, unknown or inconsistent capture observations are held for read-only reconciliation and do not count as completed payments. Never restart/recreate an event to bypass a hold. In-memory state is not restart-safe.
 
 - Creating orders and capturing were verified against the published PayPal Orders v2
   OpenAPI schema and docs, and exercised end-to-end against a local fake server that mirrors

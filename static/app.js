@@ -147,7 +147,7 @@ async function handleUrlParams() {
   const eventId = params.get('event');
   const token = params.get('token');
   if (token) {
-    await resumePayPalReturn(token);
+    await resumePayPalReturn(token, window.location.pathname === '/cancel');
     return;
   }
   if (eventId && params.get('mock_paid')) {
@@ -164,15 +164,22 @@ async function handleUrlParams() {
   else if (params.get('demo')) await loadDemo();
 }
 
-async function resumePayPalReturn(token) {
+async function resumePayPalReturn(token, cancelled = false) {
   try {
     const found = await api('/api/orders/' + encodeURIComponent(token));
     const eventId = found.event.id;
     const name = found.share.name;
     try {
-      await api(`/api/events/${encodeURIComponent(eventId)}/shares/${encodeURIComponent(name)}/capture`,
+      // Repeated return visits must reconcile an existing attempt, not start
+      // another money action. The server enforces the same boundary.
+      const action = cancelled || captureHeld(found.share) ? 'sync' : 'capture';
+      const result = await api(`/api/events/${encodeURIComponent(eventId)}/shares/${encodeURIComponent(name)}/${action}`,
         { method: 'POST', body: {} });
-      toast('PayPal payment captured — dashboard updated.', 'ok');
+      if (cancelled) {
+        toast('Checkout cancelled. No new capture requested; review the synced status.', 'error', 9000);
+      } else {
+        showCaptureOutcome(result.share, name);
+      }
     } catch (error) {
       await api(`/api/events/${encodeURIComponent(eventId)}/sync`, { method: 'POST', body: {} });
       toast(error.message, 'error', 8000);
@@ -618,7 +625,10 @@ async function loadEvent(eventId) {
   }
 }
 
-function statusLabel(status) {
+function statusLabel(status, held) {
+  if (held && !['captured', 'capture_pending', 'capture_failed', 'capture_unknown'].includes(status)) {
+    status = 'capture_unknown';
+  }
   return ({
     order_created: 'order created',
     approved: 'approved — ready to capture',
@@ -627,7 +637,25 @@ function statusLabel(status) {
     settled: 'settled',
     failed: 'order failed',
     pending: 'pending',
+    capture_pending: 'capture pending — not collected',
+    capture_failed: 'capture failed — not collected',
+    capture_unknown: 'capture unknown — review required',
   })[status] || status;
+}
+
+function captureHeld(share) {
+  return !!share && (share.reconciliation_required === true || share.capture_attempted === true || !!share.capture_status ||
+    !!share.capture_id || share.status === 'captured' ||
+    ['capture_pending', 'capture_failed', 'capture_unknown'].includes(share.status));
+}
+
+function showCaptureOutcome(share, name) {
+  if (share && share.status === 'captured') {
+    toast('Captured for ' + name + '.', 'ok');
+  } else {
+    const label = share ? statusLabel(share.status, captureHeld(share)) : 'capture outcome unknown';
+    toast(name + ': ' + label + '. Sync to reconcile; do not start another payment.', 'error', 9000);
+  }
 }
 
 function renderDashboard() {
@@ -639,12 +667,14 @@ function renderDashboard() {
   $('dashboard-sub').textContent =
     `${event.title} · ${backend} · created ${event.created_at} · one order per person who owes`;
 
-  const capturedPct = totals.collected_cents
-    ? Math.round((100 * (totals.captured_cents || 0)) / totals.collected_cents)
+  // collected_cents remains a legacy alias for the requested collection target.
+  const collectionTarget = totals.collection_target_cents ?? totals.collected_cents ?? 0;
+  const capturedPct = collectionTarget
+    ? Math.round((100 * (totals.captured_cents || 0)) / collectionTarget)
     : 0;
   $('dashboard-totals').innerHTML = [
     ['Expenses', money(totals.expenses_cents || 0, currency), ''],
-    ['Collecting', money(totals.collected_cents || 0, currency), 'mint'],
+    ['Collecting', money(collectionTarget, currency), 'mint'],
     ['Captured', money(totals.captured_cents || 0, currency), 'blue'],
     ['Credits owed', money(totals.credits_cents || 0, currency), 'violet'],
   ].map(([label, value, className]) => `
@@ -654,7 +684,8 @@ function renderDashboard() {
   const note = $('dashboard-note');
   if (event.paypal_mode === 'sandbox') {
     note.innerHTML = 'Live <strong>PayPal sandbox</strong> orders: "Open checkout" opens PayPal\'s sandbox approval page in a new tab. ' +
-      'After paying with a sandbox buyer account, click <strong>Sync</strong> then <strong>Capture</strong> — or return via the checkout return link for automatic capture.';
+      'After approval, click <strong>Sync</strong> then <strong>Capture</strong> — or return via the checkout return link for the first capture attempt. ' +
+      'Only completed captures count as collected. Pending, failed or unknown outcomes require <strong>Sync</strong> and review, not another payment.';
     show(note);
   } else {
     note.innerHTML = 'Mock mode: "Open checkout" opens SplitMate\'s own simulated PayPal page, which approves and captures instantly. ' +
@@ -671,33 +702,36 @@ function renderDashboard() {
   const rows = event.shares.map((share) => {
     const isCredit = share.status === 'credit';
     const isSettled = share.status === 'settled';
+    const held = captureHeld(share);
     const amount = isCredit ? share.net_cents : share.amount_cents;
     const orderLine = share.order_id
-      ? `<div class="share-order">${esc(share.order_id)}${share.capture_id ? ' · capture ' + esc(share.capture_id) : ''}</div>`
+      ? `<div class="share-order">${esc(share.order_id)}${share.capture_id ? ' · capture ' + esc(share.capture_id) : ''}${share.capture_status ? ' · ' + esc(share.capture_status) : ''}</div>`
       : (isCredit ? '<div class="share-order">fronted more than their share</div>'
         : isSettled ? '<div class="share-order">all square</div>' : '');
 
     const actions = [];
     const checkoutUrl = safeUrl(share.approve_url);
-    if (checkoutUrl && share.status !== 'captured') {
+    if (checkoutUrl && !held) {
       actions.push(`<a class="btn btn-primary btn-small" href="${esc(checkoutUrl)}" target="_blank" rel="noopener noreferrer">Open checkout</a>`);
       actions.push(`<button class="btn btn-secondary btn-small" data-action="copy" data-name="${esc(share.name)}">Copy link</button>`);
     }
     if (share.order_id && share.status !== 'captured') {
       actions.push(`<button class="btn btn-secondary btn-small" data-action="sync" data-name="${esc(share.name)}">Sync</button>`);
+    }
+    if (share.order_id && !held) {
       actions.push(`<button class="btn btn-secondary btn-small" data-action="capture" data-name="${esc(share.name)}">Capture</button>`);
     }
-    if (share.status === 'failed') {
+    if (share.status === 'failed' && !held) {
       actions.push(`<button class="btn btn-danger btn-small" data-action="retry" data-name="${esc(share.name)}">Retry order</button>`);
     }
-    if (!isSettled) {
+    if (!isSettled && (!held || share.status === 'captured')) {
       actions.push(`<button class="btn btn-ghost btn-small" data-action="remind" data-name="${esc(share.name)}">AI reminder</button>`);
     }
     return `
       <div class="share-row">
         <div><div class="share-name">${esc(share.name)}</div>${orderLine}</div>
         <div class="share-amount">${esc(money(amount, currency))}</div>
-        <div><span class="status-pill status-${esc(share.status)}">${esc(statusLabel(share.status))}</span></div>
+        <div><span class="status-pill status-${esc(share.status)}">${esc(statusLabel(share.status, held))}</span></div>
         <div class="share-actions">${actions.join('')}</div>
         ${share.last_error ? `<div class="share-error">${esc(share.last_error)}</div>` : ''}
       </div>`;
@@ -714,6 +748,16 @@ async function onShareRowClick(event) {
   const eventId = state.event.id;
   const encodedName = encodeURIComponent(name);
   const share = state.event.shares.find((item) => item.name === name);
+
+  // Also guard stale DOM buttons after an asynchronous state update.
+  if (captureHeld(share) && ['capture', 'retry', 'copy'].includes(action)) {
+    showCaptureOutcome(share, name);
+    return;
+  }
+  if (captureHeld(share) && share.status !== 'captured' && action === 'remind') {
+    showCaptureOutcome(share, name);
+    return;
+  }
 
   if (action === 'copy') {
     if (!share || !share.approve_url) return;
@@ -744,7 +788,11 @@ async function onShareRowClick(event) {
     } else {
       await loadEvent(eventId);
     }
-    toast(labels[action] + ' for ' + name + '.', 'ok');
+    if (action === 'capture') {
+      showCaptureOutcome(result && result.share, name);
+    } else {
+      toast(labels[action] + ' for ' + name + '.', 'ok');
+    }
   } catch (error) {
     toast(error.message, 'error', 9000);
     try { await loadEvent(eventId); } catch (ignored) { /* keep original error visible */ }
@@ -777,12 +825,18 @@ async function captureApproved() {
     const result = await api(`/api/events/${state.event.id}/capture-approved`, { method: 'POST', body: {} });
     state.event = result.event;
     renderDashboard();
-    if (result.captured.length) {
+    if (result.unresolved && result.unresolved.length) {
+      const completed = result.captured.length
+        ? 'Captured ' + result.captured.length + ' order(s). '
+        : 'No completed captures. ';
+      toast(completed + result.unresolved.length +
+        ' outcome(s) need Sync and review; do not start another payment for those shares.', 'error', 9000);
+    } else if (result.captured.length) {
       toast('Captured ' + result.captured.length + ' order(s): ' + result.captured.join(', ') + '.', 'ok');
     } else {
       toast('Nothing to capture yet — approve a checkout first on PayPal.', 'error', 7000);
     }
-    if (result.failed && result.failed.length) {
+    if ((!result.unresolved || !result.unresolved.length) && result.failed && result.failed.length) {
       toast(result.failed[0].error, 'error', 8000);
     }
   } catch (error) {

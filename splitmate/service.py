@@ -47,6 +47,9 @@ STATUS_PENDING = "pending"
 STATUS_ORDER_CREATED = "order_created"
 STATUS_APPROVED = "approved"
 STATUS_CAPTURED = "captured"
+STATUS_CAPTURE_PENDING = "capture_pending"
+STATUS_CAPTURE_FAILED = "capture_failed"
+STATUS_CAPTURE_UNKNOWN = "capture_unknown"
 STATUS_FAILED = "failed"
 STATUS_CREDIT = "credit"
 STATUS_SETTLED = "settled"
@@ -56,7 +59,6 @@ ORDER_STATUS_MAP = {
     "PAYER_ACTION_REQUIRED": STATUS_ORDER_CREATED,
     "SAVED": STATUS_ORDER_CREATED,
     "APPROVED": STATUS_APPROVED,
-    "COMPLETED": STATUS_CAPTURED,
 }
 
 
@@ -158,6 +160,14 @@ class SplitMateService:
                 "order_id": None,
                 "approve_url": None,
                 "capture_id": None,
+                "currency": plan["currency"],
+                "capture_status": None,
+                "provider_order_status": None,
+                "capture_attempted": False,
+                "reconciliation_required": False,
+                "capture_evidence": [],
+                "capture_validation_errors": [],
+                "capture_history": [],
                 "last_error": None,
                 "updated_at": now,
             }
@@ -226,7 +236,7 @@ class SplitMateService:
             event = self._get_locked(event_id)
             errors = []
             for share in event["shares"]:
-                if not share["order_id"] or share["status"] == STATUS_CAPTURED:
+                if not share["order_id"]:
                     continue
                 try:
                     self._apply_order_status(share, self.paypal.get_order(share["order_id"]))
@@ -243,21 +253,33 @@ class SplitMateService:
                 raise ConflictError("This share has no PayPal order.")
             if share["status"] == STATUS_CAPTURED:
                 return {"event": self._view_locked(event), "share": dict(share), "already": True}
+            if self._capture_is_held(share):
+                return {"event": self._view_locked(event), "share": dict(share),
+                        "already": False, "reconciliation_required": True}
+            # Latch BEFORE the money call. Lost/error/malformed responses must
+            # never unlock a second capture; only a read-only sync may resolve it.
+            share["capture_attempted"] = True
             try:
                 result = self.paypal.capture_order(share["order_id"])
             except PayPalAPIError as exc:
                 share["last_error"] = str(exc)
                 share["updated_at"] = _iso_now()
                 if exc.is_not_approved():
+                    # A definite provider rejection is not an uncertain capture.
+                    # A later, explicit user action after approval is safe.
+                    share["capture_attempted"] = False
                     raise ConflictError(
                         "{} hasn't approved the PayPal order yet. Open the checkout "
                         "link, finish the sandbox payment, then capture.".format(name)
                     )
+                self._hold_capture_error(share, str(exc))
                 raise
             except PayPalError as exc:
-                share["last_error"] = str(exc)
-                share["updated_at"] = _iso_now()
+                self._hold_capture_error(share, str(exc))
                 raise
+            except Exception:
+                self._hold_capture_error(share, "Capture response could not be verified.")
+                raise PayPalError(share["last_error"])
             self._apply_capture(share, result)
             return {"event": self._view_locked(event), "share": dict(share)}
 
@@ -266,19 +288,29 @@ class SplitMateService:
             event = self._get_locked(event_id)
             captured: List[str] = []
             failed: List[Dict[str, str]] = []
+            unresolved: List[Dict[str, str]] = []
             for share in event["shares"]:
                 if share["status"] in (STATUS_CAPTURED, STATUS_CREDIT, STATUS_SETTLED, STATUS_FAILED):
                     continue
                 if not share["order_id"]:
                     continue
                 try:
-                    result = self.paypal.capture_order(share["order_id"])
-                    self._apply_capture(share, result)
-                    captured.append(share["name"])
-                except PayPalError as exc:
-                    share["last_error"] = str(exc)
+                    self.capture_share(event_id, share["name"])
+                    if share["status"] == STATUS_CAPTURED:
+                        captured.append(share["name"])
+                    else:
+                        unresolved.append({"name": share["name"], "status": share["status"],
+                                           "error": share["last_error"] or "Sync to reconcile this capture."})
+                except ConflictError as exc:
                     failed.append({"name": share["name"], "error": str(exc)})
-            return {"event": self._view_locked(event), "captured": captured, "failed": failed}
+                except PayPalError as exc:
+                    error = share["last_error"] or str(exc)
+                    failed.append({"name": share["name"], "error": error})
+                    if share["reconciliation_required"]:
+                        unresolved.append({"name": share["name"], "status": share["status"],
+                                           "error": error})
+            return {"event": self._view_locked(event), "captured": captured,
+                    "failed": failed, "unresolved": unresolved}
 
     def retry_share(self, event_id: str, name: str) -> Dict[str, Any]:
         with self._lock:
@@ -316,6 +348,7 @@ class SplitMateService:
             share["updated_at"] = _iso_now()
             return
         share["status"] = STATUS_ORDER_CREATED
+        share["provider_order_status"] = order.get("status")
         share["order_id"] = order.get("order_id")
         share["approve_url"] = order.get("approve_url")
         share["last_error"] = None
@@ -327,21 +360,81 @@ class SplitMateService:
             }
 
     def _apply_order_status(self, share: Dict[str, Any], order: Dict[str, Any]) -> None:
-        status = ORDER_STATUS_MAP.get(str(order.get("status") or "").upper())
-        if status:
-            share["status"] = status
-        if order.get("capture_id"):
-            share["capture_id"] = order["capture_id"]
+        provider_status = str(order.get("status") or "UNKNOWN").upper()
+        share["provider_order_status"] = provider_status
+        if (order.get("capture_validation_errors")
+                or order.get("order_id") != share["order_id"]
+                or order.get("capture_evidence") or order.get("capture_id")
+                or order.get("capture_status") or self._capture_is_held(share)
+                or provider_status not in ORDER_STATUS_MAP):
+            self._apply_capture(share, order)
+            return
+        share["status"] = ORDER_STATUS_MAP[provider_status]
         if order.get("approve_url"):
             share["approve_url"] = order["approve_url"]
         share["last_error"] = None
         share["updated_at"] = _iso_now()
 
     def _apply_capture(self, share: Dict[str, Any], result: Dict[str, Any]) -> None:
-        share["capture_id"] = result.get("capture_id") or share.get("capture_id")
-        share["status"] = STATUS_CAPTURED
-        share["last_error"] = None
+        evidence = result.get("capture_evidence")
+        if evidence is None:
+            evidence = [{key: result.get(key) for key in
+                         ("capture_id", "capture_status", "amount_cents", "currency")}]
+        # Retain observations for reconciliation, without storing payer PII.
+        validation_errors = result.get("capture_validation_errors") or []
+        observation = {"provider_order_id": result.get("order_id"),
+                       "provider_order_status": result.get("status"), "captures": evidence,
+                       "validation_errors": validation_errors}
+        history = share["capture_history"]
+        if not history or history[-1] != observation:
+            history.append(observation)
+        share["provider_order_status"] = result.get("status")
+        share["capture_validation_errors"] = validation_errors
+        if any(item.get("capture_id") or item.get("capture_status") for item in evidence):
+            share["capture_evidence"] = evidence
+            share["capture_id"] = result.get("capture_id") or share.get("capture_id")
+            share["capture_status"] = result.get("capture_status")
+        status = result.get("capture_status") or "UNKNOWN"
+        if (validation_errors or len(evidence) != 1
+                or result.get("order_id") != share["order_id"]):
+            status = "UNKNOWN"
+        complete = (
+            len(evidence) == 1 and isinstance(result.get("capture_id"), str)
+            and bool(result["capture_id"].strip())
+            and result.get("order_id") == share["order_id"]
+            and status == "COMPLETED"
+            and result.get("amount_cents") == share["amount_cents"]
+            and result.get("currency") == share["currency"]
+        )
+        if complete:
+            share["status"] = STATUS_CAPTURED
+            share["last_error"] = None
+        elif status == "PENDING":
+            share["status"] = STATUS_CAPTURE_PENDING
+            share["last_error"] = "Capture pending; funds are not confirmed. Sync to reconcile; do not pay again."
+        elif status in ("DECLINED", "FAILED", "DENIED", "REFUNDED", "PARTIALLY_REFUNDED"):
+            share["status"] = STATUS_CAPTURE_FAILED
+            share["last_error"] = "Capture is not completed ({}). Sync or review the existing order; do not pay again.".format(status)
+        else:
+            share["status"] = STATUS_CAPTURE_UNKNOWN
+            share["last_error"] = "Capture outcome or amount could not be verified. Sync to reconcile; do not pay again."
+        share["reconciliation_required"] = not complete
         share["updated_at"] = _iso_now()
+
+    @staticmethod
+    def _capture_is_held(share: Dict[str, Any]) -> bool:
+        return bool(share.get("capture_attempted") or share.get("capture_id")
+                    or share.get("capture_status") or share["status"] in
+                    (STATUS_CAPTURED, STATUS_CAPTURE_PENDING, STATUS_CAPTURE_FAILED, STATUS_CAPTURE_UNKNOWN))
+
+    @staticmethod
+    def _hold_capture_error(share: Dict[str, Any], message: str) -> None:
+        share["status"] = STATUS_CAPTURE_UNKNOWN
+        share["reconciliation_required"] = True
+        share["last_error"] = message + " Outcome unconfirmed; sync to reconcile before any further payment action."
+        share["updated_at"] = _iso_now()
+        share["capture_history"].append({"outcome": "unknown", "reason": "capture_request_failed",
+                                         "observed_at": share["updated_at"]})
 
     # -- mock checkout -----------------------------------------------------
     def mock_checkout(self, order_id: str) -> Dict[str, Any]:
@@ -372,11 +465,11 @@ class SplitMateService:
             share = self._get_share_locked(event, name)
             if share["status"] == STATUS_CAPTURED:
                 return {"event": self._view_locked(event), "share": dict(share), "already": True}
+            if self._capture_is_held(share):
+                return self.capture_share(event_id, name)
             if hasattr(self.paypal, "mark_approved"):
                 self.paypal.mark_approved(order_id)  # type: ignore[attr-defined]
-            result = self.paypal.capture_order(order_id)
-            self._apply_capture(share, result)
-            return {"event": self._view_locked(event), "share": dict(share), "already": False}
+            return self.capture_share(event_id, name)
 
     # -- lookup / reminders ------------------------------------------------
     def find_order(self, order_id: str) -> Dict[str, Any]:
@@ -390,6 +483,8 @@ class SplitMateService:
         with self._lock:
             event = self._get_locked(event_id)
             share = self._get_share_locked(event, name)
+            if share.get("reconciliation_required"):
+                raise ConflictError("Reconcile this capture with Sync before drafting another payment reminder.")
             reminder = draft_reminder(event["plan"], share, self.config)
             return {
                 "name": share["name"],
@@ -431,6 +526,8 @@ class SplitMateService:
                 "order_id": share["order_id"],
                 "approve_url": share["approve_url"],
                 "capture_id": share["capture_id"],
+                "capture_status": share["capture_status"],
+                "reconciliation_required": share["reconciliation_required"],
                 "last_error": share["last_error"],
             }
             for share in shares
@@ -450,6 +547,11 @@ class SplitMateService:
             "totals": {
                 "expenses_cents": event["split"]["total_cents"],
                 "collected_cents": sum(
+                    order["amount_cents"] for order in orders if order["status"] != STATUS_FAILED
+                ),
+                # Legacy collected_cents is a requested target, never proof of
+                # payment. Keep its API meaning; offer an unambiguous alias.
+                "collection_target_cents": sum(
                     order["amount_cents"] for order in orders if order["status"] != STATUS_FAILED
                 ),
                 "credits_cents": sum(

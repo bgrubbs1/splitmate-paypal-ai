@@ -30,6 +30,7 @@ simulated checkout page, clearly labelled as a simulation.
 
 import base64
 import json
+import math
 import re
 import socket
 import time
@@ -37,14 +38,45 @@ import urllib.error
 import urllib.request
 from typing import Any, Dict, List, Optional
 
-from .config import Config
-from .plan import cents_to_value, parse_money_to_cents
+from .config import Config, SUPPORTED_CURRENCIES
+from .plan import cents_to_value
 
 ORDER_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,63}$")
 REFERENCE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$")
 
 APPROVE_RELS = ("payer-action", "approve")
 CAPTURE_RELS = ("capture",)
+
+
+def _evidence_scalar(value: Any) -> Any:
+    """Retain scalar diagnostics without invalid JSON or arbitrary payloads.
+
+    Nonfinite JSON extensions/overflow cannot be serialized for browsers. Keep
+    their type and spelling in an object, not a coercion to a valid ID/amount.
+    Objects/arrays in scalar fields retain only their type: their contents are
+    not part of payment evidence and may contain unrelated private data.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        label = "NaN" if math.isnan(value) else ("Infinity" if value > 0 else "-Infinity")
+        return {"invalid_type": "nonfinite_number", "value": label}
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return {"invalid_type": type(value).__name__}
+
+
+def _wire_amount_cents(value: Any, currency: Any) -> Optional[int]:
+    """Parse provider wire money exactly, never user-friendly/coercive input.
+
+    All currencies supported by this app have two minor-unit decimal places.
+    PayPal money.value is a decimal string (including '.50'), not a JSON
+    number, a currency-suffixed user input, or a value to round/truncate.
+    """
+    if (not isinstance(value, str) or not 1 <= len(value) <= 32
+            or currency not in SUPPORTED_CURRENCIES
+            or re.fullmatch(r"(?:[0-9]+(?:\.[0-9]{1,2})?|\.[0-9]{1,2})", value) is None):
+        return None
+    whole, _, fraction = value.partition(".")
+    return int(whole or "0") * 100 + int((fraction + "00")[:2])
 
 
 class PayPalError(RuntimeError):
@@ -362,14 +394,11 @@ class RealPayPalClient(BasePayPalClient):
             "GET", "/v2/checkout/orders/" + validated, action="get order"
         )
         result = {
-            "order_id": str(data.get("id") or validated),
-            "status": str(data.get("status") or "UNKNOWN"),
+            # A requested ID is context, not provider identity evidence.
+            "order_id": _evidence_scalar(data.get("id")),
+            "status": _evidence_scalar(data.get("status")),
         }
-        capture = self._extract_capture(data)
-        if capture.get("capture_id"):
-            result.update(capture)
-            if capture.get("capture_status") == "COMPLETED":
-                result["status"] = "COMPLETED"
+        result.update(self._extract_capture(data))
         return result
 
     def capture_order(self, order_id: str) -> Dict[str, Any]:
@@ -381,29 +410,72 @@ class RealPayPalClient(BasePayPalClient):
             action="capture",
         )
         capture = self._extract_capture(data)
-        status = str(capture.get("capture_status") or data.get("status") or "UNKNOWN")
         return {
-            "order_id": str(data.get("id") or validated),
-            "status": "COMPLETED" if status == "COMPLETED" else str(data.get("status") or status),
-            "capture_id": capture.get("capture_id"),
-            "capture_status": capture.get("capture_status"),
-            "amount_cents": capture.get("amount_cents"),
+            "order_id": _evidence_scalar(data.get("id")),
+            "status": _evidence_scalar(data.get("status")),
+            **capture,
         }
 
     @staticmethod
     def _extract_capture(order: Dict[str, Any]) -> Dict[str, Any]:
-        for unit in order.get("purchase_units") or []:
-            payments = unit.get("payments") or {}
-            for capture in payments.get("captures") or []:
-                if capture.get("id"):
-                    return {
-                        "capture_id": capture.get("id"),
-                        "capture_status": capture.get("status"),
-                        "amount_cents": parse_money_to_cents(
-                            (capture.get("amount") or {}).get("value")
-                        ),
-                    }
-        return {}
+        # Keep payment evidence distinct from the order lifecycle. A completed
+        # order does not establish that its capture completed. Preserve missing
+        # IDs/statuses and multiple captures for conservative reconciliation.
+        evidence: List[Dict[str, Any]] = []
+        errors: List[str] = []
+        if not isinstance(order.get("status"), str) or not order["status"]:
+            errors.append("status is missing or invalid")
+
+        def record(capture: Any, path: str) -> None:
+            if not isinstance(capture, dict):
+                errors.append(path + " must be an object")
+                evidence.append({"invalid_type": type(capture).__name__})
+                return
+            amount = capture.get("amount")
+            amount = amount if isinstance(amount, dict) else {}
+            value, currency = amount.get("value"), amount.get("currency_code")
+            cents = _wire_amount_cents(value, currency)
+            if cents is None:
+                errors.append(path + ".amount is not exact supported wire money")
+            capture_id = capture.get("id")
+            if not isinstance(capture_id, str) or not capture_id.strip():
+                errors.append(path + ".id is missing or invalid")
+            evidence.append({
+                "capture_id": _evidence_scalar(capture_id),
+                "capture_status": _evidence_scalar(capture.get("status")),
+                "amount_cents": cents,
+                "amount_value": _evidence_scalar(value),
+                "currency": _evidence_scalar(currency),
+            })
+
+        units = order.get("purchase_units")
+        if not isinstance(units, list) or not units:
+            errors.append("purchase_units must be a nonempty array")
+            units = []
+        for index, unit in enumerate(units):
+            path = "purchase_units[{}]".format(index)
+            if not isinstance(unit, dict):
+                errors.append(path + " must be an object")
+                continue
+            if "payments" not in unit:  # Ordinary uncaptured orders have none.
+                continue
+            payments = unit["payments"]
+            if not isinstance(payments, dict):
+                errors.append(path + ".payments must be an object")
+                continue
+            if "captures" not in payments:
+                continue
+            captures = payments["captures"]
+            if not isinstance(captures, list):
+                errors.append(path + ".payments.captures must be an array")
+                # Preserve recognizable identifiers/statuses, but never treat
+                # an invalid container as a valid capture or silently drop it.
+                record(captures, path + ".payments.captures")
+                continue
+            for capture_index, capture in enumerate(captures):
+                record(capture, path + ".payments.captures[{}]".format(capture_index))
+        return dict(evidence[0] if evidence else {},
+                    capture_evidence=evidence, capture_validation_errors=errors)
 
 
 # ---------------------------------------------------------------------------
@@ -480,6 +552,7 @@ class MockPayPalClient(BasePayPalClient):
             result["capture_id"] = order["capture_id"]
             result["capture_status"] = order.get("capture_status")
             result["amount_cents"] = order["amount_cents"]
+            result["currency"] = order["currency"]
         return result
 
     def capture_order(self, order_id: str) -> Dict[str, Any]:
@@ -491,6 +564,7 @@ class MockPayPalClient(BasePayPalClient):
                 "capture_id": order.get("capture_id"),
                 "capture_status": order.get("capture_status"),
                 "amount_cents": order["amount_cents"],
+                "currency": order["currency"],
             }
         # Simulated buyer completed the (mock) checkout page.
         order["status"] = "COMPLETED"
@@ -502,6 +576,7 @@ class MockPayPalClient(BasePayPalClient):
             "capture_id": order["capture_id"],
             "capture_status": "COMPLETED",
             "amount_cents": order["amount_cents"],
+            "currency": order["currency"],
         }
 
     def _get_raw(self, order_id: str) -> Dict[str, Any]:

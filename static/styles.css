@@ -418,6 +418,9 @@ textarea::placeholder { color: var(--muted-2); }
 .status-settled { color: var(--muted); background: rgba(255, 255, 255, 0.05); }
 .status-failed { color: var(--red); background: var(--red-soft); border-color: rgba(255, 115, 135, 0.3); }
 .status-pending { color: var(--muted); background: rgba(255, 255, 255, 0.05); }
+.status-capture_pending { color: var(--amber); background: var(--amber-soft); border-color: rgba(255, 193, 77, 0.3); }
+.status-capture_failed { color: var(--red); background: var(--red-soft); border-color: rgba(255, 115, 135, 0.3); }
+.status-capture_unknown { color: var(--violet); background: var(--violet-soft); border-color: rgba(139, 123, 255, 0.3); }
 .share-actions { display: flex; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
 .share-error {
   grid-column: 1 / -1; color: var(--red); font-size: 12px; background: var(--red-soft);
