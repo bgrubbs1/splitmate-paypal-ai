@@ -1,0 +1,4 @@
+# Keep the vendored library byte-identical to its published package on every platform.
+static/vendor/** -text
+# bash on macOS and Linux fails on CRLF line endings.
+*.sh text eol=lf

@@ -345,6 +345,7 @@ textarea::placeholder { color: var(--muted-2); }
 .recon-warn { color: var(--amber); background: var(--amber-soft); border-color: rgba(255, 193, 77, 0.4); }
 .recon-info { color: var(--blue); background: var(--blue-soft); border-color: rgba(98, 168, 255, 0.35); }
 
+.grid-host .cell-action { display: flex; align-items: center; justify-content: center; padding: 0; text-overflow: clip; }
 .grid-host .cell-mono { font-family: var(--mono); }
 .grid-host .cell-total { font-weight: 700; color: var(--muted); }
 .grid-host .cell-noted::after { content: " ✦"; color: var(--violet); }

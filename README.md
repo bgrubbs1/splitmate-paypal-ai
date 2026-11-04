@@ -21,6 +21,8 @@ prototype that integrates **PayPal's developer platform (sandbox)** and an **AI 
 
 ![SplitMate](docs/cover.png)
 
+![The AG Grid allocation matrix shows each person's exact share of each item, with reconciled totals](docs/screenshots/03-allocation-matrix.png)
+![The AG Grid payment ledger reports each share and its PayPal order](docs/screenshots/04-payment-ledger.png)
 ![SplitMate parses the plan and proposes a fair split](docs/screenshots/01-parse-and-split.png)
 ![SplitMate collects each share with PayPal orders](docs/screenshots/02-paypal-dashboard.png)
 

@@ -257,6 +257,7 @@
         maxWidth: 52,
         sortable: false,
         suppressHeaderMenuButton: true,
+        cellClass: 'cell-action',
         cellRenderer: deleteRenderer,
       },
     ]);
