@@ -324,6 +324,49 @@ textarea::placeholder { color: var(--muted-2); }
 }
 .expense-labels span:nth-child(2) { text-align: right; }
 
+/* -------------------------------------------------------------- AG Grid views */
+.matrix-block { margin-bottom: 18px; }
+.block-sub { margin: 4px 0 0; max-width: 68ch; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.grid-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; }
+.grid-host { width: 100%; }
+.grid-filter {
+  width: 240px; max-width: 100%; background: var(--bg-soft); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
+  font: 13px/1.4 var(--font); outline: none;
+}
+.grid-filter:focus { border-color: rgba(0, 212, 160, 0.55); }
+.recon-strip { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.recon-pill {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 999px;
+  font: 600 12.5px/1.5 var(--mono); border: 1px solid var(--border-strong); color: var(--muted);
+}
+.recon-ok { color: var(--mint); background: var(--mint-soft); border-color: rgba(0, 212, 160, 0.4); }
+.recon-ok::before { content: "✓"; }
+.recon-warn { color: var(--amber); background: var(--amber-soft); border-color: rgba(255, 193, 77, 0.4); }
+.recon-info { color: var(--blue); background: var(--blue-soft); border-color: rgba(98, 168, 255, 0.35); }
+
+.grid-host .cell-mono { font-family: var(--mono); }
+.grid-host .cell-total { font-weight: 700; color: var(--muted); }
+.grid-host .cell-noted::after { content: " ✦"; color: var(--violet); }
+.grid-host .cell-review { color: var(--amber); background: var(--amber-soft); }
+.grid-host .alloc-on { font-family: var(--mono); color: var(--text); cursor: pointer; background: var(--mint-soft); }
+.grid-host .alloc-on:hover { background: rgba(0, 212, 160, 0.22); }
+.grid-host .alloc-off { color: var(--muted-2); cursor: pointer; font-size: 12px; }
+.grid-host .alloc-off:hover { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+.grid-host .alloc-payer { box-shadow: inset 0 -2px 0 var(--violet); }
+.grid-host .net-owes { color: var(--red); font-family: var(--mono); font-weight: 700; }
+.grid-host .net-credit { color: var(--mint); font-family: var(--mono); font-weight: 700; }
+.grid-host .status-pill {
+  display: inline-flex; align-items: center; padding: 1px 9px; line-height: 1.5;
+  font-size: 11.5px; vertical-align: middle; white-space: nowrap;
+}
+.grid-delete {
+  appearance: none; cursor: pointer; width: 26px; height: 26px; border-radius: 7px;
+  border: 1px solid transparent; background: transparent; color: var(--muted-2);
+  font-size: 16px; line-height: 1;
+}
+.grid-delete:hover { color: var(--red); background: var(--red-soft); }
+
 /* ------------------------------------------------------------- reasoning */
 .reason-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
 .reason-list li {

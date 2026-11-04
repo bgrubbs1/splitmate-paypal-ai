@@ -13,10 +13,11 @@ captured, and can draft the payment reminder for you.
 Built for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/) — a working
 prototype that integrates **PayPal's developer platform (sandbox)** and an **AI model/tool**.
 
-- **Runs with zero dependencies:** Python 3.9+ standard library only, single-page vanilla JS UI. No pip, no npm, no build step.
+- **Nothing to install:** Python 3.9+ standard library on the server, plain JS in the browser. No pip, no npm, no build step. The one third-party library, [AG Grid Community](https://www.ag-grid.com/) (MIT), is committed under `static/vendor/`, so it also works offline.
+- **Check the AI's work before money moves:** an AG Grid allocation matrix shows each person's exact share of each item, lets you correct the AI in place, and shows whether the totals reconcile. A second AG Grid is the payment ledger.
 - **Runs offline by default:** mock mode includes a deterministic AI parser fallback and a simulated PayPal checkout, so judges can click through the whole flow with no accounts, no keys and no network.
 - **Sandbox adapter implemented, live validation pending:** configuration supports PayPal sandbox credentials and an optional LLM key. Tests use local fake services; genuine PayPal checkout/capture and external-model behavior have not been verified.
-- **Tested:** `python3 -m unittest` → 179 tests; `bash scripts/smoke.sh` → 56 scripted end-to-end assertions covering mock mode **and** the real HTTP path against a local fake PayPal/LLM server.
+- **Tested:** `python3 -m unittest` → 181 tests; `make test-ui` → 37 browser-code tests; `bash scripts/smoke.sh` → 56 scripted end-to-end assertions covering mock mode **and** the real HTTP path against a local fake PayPal/LLM server.
 
 ![SplitMate](docs/cover.png)
 
@@ -54,8 +55,10 @@ handles the money movement. The human stays in the loop and only approves a spli
 
 3. **Fair split, explained.** Every expense is allocated in integer cents with
    largest-remainder rounding (so the item always sums exactly), partial attendance narrows
-   who shares what, and each person's *net* position is `paid − share`. You can edit
-   everything in the UI and recalculate.
+   who shares what, and each person's *net* position is `paid − share`. In the AG Grid
+   allocation matrix you can correct anything the AI got wrong: edit a value or click a
+   person's cell, the server recalculates, and the changed cells flash while the pinned
+   rows show whether the totals still reconcile.
 
 4. **PayPal collects the difference.** On approval, SplitMate creates **one PayPal order per
    net debtor** — not one per pairwise IOU. In the demo above, a web of who-paid-what
@@ -85,7 +88,8 @@ machine in mock mode.
 Run the test suite and the one-command smoke proof:
 
 ```bash
-python3 -m unittest discover -s tests -t .   # 179 tests
+python3 -m unittest discover -s tests -t .   # 181 tests
+make test-ui                                 # 37 browser-code tests (needs Node.js, no packages)
 bash scripts/smoke.sh                        # or: make smoke   (56 assertions)
 ```
 
@@ -238,11 +242,13 @@ contest-entries/paypal/
 │   ├── server.py               # HTTP server: JSON API, static UI, mock checkout
 │   ├── llm.py                  # OpenAI-compatible chat-completions client
 │   └── fake_services.py        # fake PayPal + LLM server used by tests/smoke
-├── static/                     # single-page UI (vanilla HTML/CSS/JS)
+├── static/                     # single-page UI (plain HTML/CSS/JS)
+│   ├── grids.js                # AG Grid allocation matrix + payment ledger
+│   └── vendor/                 # unmodified AG Grid Community 36.2.0 + its MIT license
 ├── samples/                    # deterministic demo plan + expected split
 ├── scripts/smoke.sh            # one-command end-to-end proof
 ├── scripts/smoke_client.py     # scripted smoke assertions
-├── tests/                      # 179 unittest tests
+├── tests/                      # 181 unittest tests + 37 browser-code tests
 ├── docs/screenshots/           # app screenshots (also handy as a Devpost thumbnail)
 ├── README.md · SUBMISSION.md · RUNBOOK.md · RULES-NOTES.md
 ├── LICENSE (MIT) · .env.example · .gitignore · Makefile
@@ -287,7 +293,7 @@ and `Referrer-Policy: no-referrer`.
   shapes, then wrote a fake PayPal server that mirrors those shapes so the real client could
   be tested over HTTP — including the `ORDER_NOT_APPROVED` 422 path a live sandbox returns
   if you try to capture before the buyer approves.
-- **Making a hackathon demo that "just runs".** Zero dependencies, offline mock mode,
+- **Making a hackathon demo that "just runs".** Nothing to install, offline mock mode,
   one-command smoke test, deterministic sample plan. Reviewers shouldn't have to install
   anything or own a PayPal account to see the product work.
 - **Limited in-memory personal data.** Plans and participant names can contain personal data. Event data is in memory only; the browser never
@@ -299,13 +305,15 @@ and `Referrer-Policy: no-referrer`.
 - An offline-demonstrated product loop: plan → validated structure → editable fair split
   → simulated checkout → status sync → simulated capture → reminder template.
   PayPal Orders v2 and model adapters are implemented but genuine provider behavior remains unverified.
-- 179 stdlib `unittest` tests and a 56-assertion smoke script that exercise the offline
+- 181 stdlib `unittest` tests and a 56-assertion smoke script that exercise the offline
   demo and the real-mode HTTP path (OAuth header, order payload, capture flow, 409 before
   approval, token caching, error sanitisation) against a local fake PayPal/LLM server.
 - A split engine that always reconciles to the cent, explains every line, and turns a
   four-person trip into three PayPal orders instead of a spreadsheet.
-- A polished single-page UI with no frontend framework, no build step, and no external
-  assets — dark, responsive, and honest about mock vs real mode.
+- A polished single-page UI with no frontend framework, no build step, and nothing loaded
+  from a CDN — dark, responsive, and honest about mock vs real mode.
+- An AG Grid review surface where one click re-splits the whole plan through the server's
+  exact-cent engine, and the totals visibly reconcile before any order exists.
 - A repo that is genuinely ready to hand to a judge: README, runbook, rules notes,
   paste-ready Devpost copy, demo video script, MIT license, `.env.example`.
 
@@ -346,15 +354,20 @@ and `Referrer-Policy: no-referrer`.
 - **PayPal Orders v2 REST API** + OAuth 2.0 client credentials (PayPal sandbox)
 - **OpenAI-compatible Chat Completions API** for plan parsing and reminder drafting
 - **A deterministic rule-based NLP parser** for offline mock mode and AI-failure fallback
-- **Vanilla HTML/CSS/JavaScript** single-page UI served by the app (no framework, no build)
-- **MIT License**, `.env`-based configuration, no third-party dependencies
+- **AG Grid Community 36.2.0** (MIT) for the allocation matrix and payment ledger
+- **Plain HTML/CSS/JavaScript** single-page UI served by the app (no framework, no build)
+- **MIT License**, `.env`-based configuration, no Python packages to install
 
 ## Testing
 
 ```bash
-# 179 tests across plan validation, split math, parsers (incl. LLM + fallbacks),
+# 181 tests across plan validation, split math, parsers (incl. LLM + fallbacks),
 # PayPal request shapes/OAuth/capture/errors, HTTP endpoints and security hardening.
 python3 -m unittest discover -s tests -t . -v
+
+# 37 tests of the real browser code against a fake DOM, fake AG Grid and fake HTTP.
+# Needs Node.js 18+ but no packages.
+make test-ui
 
 # One command: unit tests + fake PayPal/LLM server + mock-mode E2E + real-mode
 # HTTP path (OAuth, orders, 409-before-approval, sync, capture, token caching).
@@ -389,7 +402,7 @@ What the tests cover, briefly:
 
 ## Limitations / unverified details
 
-- **Verification boundary:** 179 Python tests, 56 local fake-service smoke assertions and 23 UI logic tests exercise implemented behavior. They are not evidence of genuine PayPal sandbox approval/capture, external LLM quality, or browser visual QA.
+- **Verification boundary:** 181 Python tests, 56 local fake-service smoke assertions and 37 UI logic tests exercise implemented behavior. They are not evidence of genuine PayPal sandbox approval/capture or external LLM quality. The AG Grid views were also driven in a real Chromium browser, in mock mode only; other browsers, assistive technology and a live PayPal run have not been tested.
 - **Capture safety:** pending, failed, unknown or inconsistent capture observations are held for read-only reconciliation and do not count as completed payments. Never restart/recreate an event to bypass a hold. In-memory state is not restart-safe.
 
 - Creating orders and capturing were verified against the published PayPal Orders v2

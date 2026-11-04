@@ -37,6 +37,24 @@ class MockServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("javascript", headers["Content-Type"])
 
+    def test_vendored_grid_bundle_is_served_with_its_license(self):
+        status, headers, body = http(
+            "GET", self.url("/static/vendor/ag-grid-community-36.2.0.min.js"), raw=True
+        )
+        self.assertEqual(status, 200)
+        self.assertIn("javascript", headers["Content-Type"])
+        self.assertGreater(len(body), 1000000)
+        status, _, license_text = http("GET", self.url("/static/vendor/AG-GRID-LICENSE.txt"), raw=True)
+        self.assertEqual(status, 200)
+        self.assertIn(b"MIT License", license_text)
+
+    def test_index_loads_the_grid_layer_before_the_app_from_this_server(self):
+        _, _, body = http("GET", self.url("/"), raw=True)
+        text = body.decode("utf-8")
+        self.assertLess(text.index("/static/vendor/ag-grid-community"), text.index("/static/grids.js"))
+        self.assertLess(text.index("/static/grids.js"), text.index("/static/app.js"))
+        self.assertNotIn("<script src=\"http", text, "no script may come from a CDN")
+
     def test_return_and_cancel_routes_serve_app(self):
         for path in ("/return", "/cancel"):
             status, headers, body = http("GET", self.url(path), raw=True)
@@ -246,9 +264,14 @@ class MockServerTests(unittest.TestCase):
 
     # -- request hardening -------------------------------------------------
     def test_oversized_body_rejected(self):
-        status, _, body = http(
-            "POST", self.url("/api/parse"), {"text": "x" * 300000}
-        )
+        try:
+            status, _, body = http(
+                "POST", self.url("/api/parse"), {"text": "x" * 300000}
+            )
+        except ConnectionError:
+            # The server answers without reading the oversized body and closes.
+            # Windows can surface that as an aborted send, which is still a rejection.
+            return
         self.assertEqual(status, 413)
         self.assertIn("too large", body["error"]["message"])
 

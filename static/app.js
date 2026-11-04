@@ -1,4 +1,4 @@
-/* SplitMate single-page UI. Vanilla JS, no build step, no external dependencies. */
+/* SplitMate single-page UI. Vanilla JS, no build step. grids.js adds optional AG Grid views. */
 'use strict';
 
 const state = {
@@ -11,6 +11,13 @@ const state = {
 };
 
 const CURRENCY_SYMBOLS = { USD: '$', EUR: '€', GBP: '£', CAD: 'CA$', AUD: 'A$' };
+const LIVE_PREVIEW_DELAY_MS = 180;
+
+let expenseUid = 0;
+let previewSeq = 0;
+let previewTimer = null;
+let matrixStale = false;
+const nextExpenseUid = () => 'expense-' + (++expenseUid);
 
 /* ------------------------------------------------------------- utilities */
 const $ = (id) => document.getElementById(id);
@@ -224,6 +231,10 @@ function wireEvents() {
   $('expenses').addEventListener('change', onExpenseInput);
   $('expenses').addEventListener('click', onExpenseClick);
   $('share-rows').addEventListener('click', onShareRowClick);
+  $('matrix-add-expense').addEventListener('click', addExpense);
+  $('matrix-export').addEventListener('click', () => { if (gridLayer()) gridLayer().exportMatrix(gridContext()); });
+  $('ledger-export').addEventListener('click', () => { if (gridLayer()) gridLayer().exportLedger(gridContext()); });
+  $('ledger-filter').addEventListener('input', (event) => { if (gridLayer()) gridLayer().filterLedger(event.target.value); });
 }
 
 /* ------------------------------------------------------------------ parse */
@@ -253,6 +264,9 @@ async function parsePlan() {
     state.plan = result.plan;
     state.split = result.split;
     state.editor = editorFromPlan(result.plan);
+    previewSeq += 1;
+    matrixStale = false;
+    attachAllocations();
     renderMode();
     renderWarnings(result.warnings);
     renderEditor();
@@ -283,6 +297,8 @@ function editorFromPlan(plan) {
   return {
     participants: (plan.participants || []).slice(),
     expenses: (plan.expenses || []).map((expense) => ({
+      uid: nextExpenseUid(),
+      shares: null,
       description: expense.description || '',
       amount_text: ((Number(expense.amount_cents) || 0) / 100).toFixed(2),
       paid_by: expense.paid_by || '',
@@ -326,6 +342,13 @@ function renderEditor() {
       <button type="button" data-remove-participant="${index}" title="${canRemove ? 'Remove participant' : 'A split needs at least two people'}" ${canRemove ? '' : 'disabled'} aria-label="Remove participant">×</button>
     </span>`).join('');
 
+  if (renderExpenseMatrix()) {
+    hide($('expenses-block'));
+    renderParserNotes();
+    renderEditorReasoning();
+    return;
+  }
+
   const expensesEl = $('expenses');
   if (!editor.expenses.length) {
     expensesEl.innerHTML = '<p class="sub">No expenses yet. Add one or re-parse the plan.</p>';
@@ -358,6 +381,11 @@ function renderEditor() {
   }).join('');
   expensesEl.innerHTML = labels + rows;
 
+  renderParserNotes();
+  renderEditorReasoning();
+}
+
+function renderParserNotes() {
   const notes = (state.plan && state.plan.notes) || [];
   if (notes.length) {
     $('ai-notes-list').innerHTML = notes.map((note) => `<li>${esc(note)}</li>`).join('');
@@ -365,8 +393,96 @@ function renderEditor() {
   } else {
     hide($('ai-notes'));
   }
+}
 
+/* ------------------------------------------------------------ AG Grid views */
+function gridLayer() {
+  const layer = window.SplitMateGrids;
+  return layer && layer.available() ? layer : null;
+}
+
+function gridContext() {
+  return {
+    money,
+    toast,
+    statusLabel,
+    captureHeld,
+    currency: () => (state.split && state.split.currency) || (state.event && state.event.currency) || (state.plan && state.plan.currency) || 'USD',
+    isStale: () => matrixStale,
+    edited: scheduleLivePreview,
+    removeExpense: (expense) => {
+      const index = state.editor.expenses.indexOf(expense);
+      if (index < 0) return;
+      state.editor.expenses.splice(index, 1);
+      renderEditor();
+      scheduleLivePreview();
+    },
+    toggleShare: (expense, name) => {
+      if (toggleExpenseShare(expense, name)) scheduleLivePreview();
+    },
+  };
+}
+
+function renderExpenseMatrix() {
+  const layer = gridLayer();
+  if (!layer || !state.editor) return false;
+  show($('matrix-block'));
+  const context = gridContext();
+  layer.renderMatrix($('review-grid'), state.editor, state.split, context);
+  layer.renderRecon($('grid-recon'), state.split, state.editor, context);
+  return true;
+}
+
+/** Copy the server's per-person cents onto editor rows; a row-count mismatch shows none rather than misaligned money. */
+function attachAllocations() {
+  if (!state.editor) return;
+  const rows = (state.split && state.split.expenses) || [];
+  const aligned = rows.length === state.editor.expenses.length;
+  state.editor.expenses.forEach((expense, index) => {
+    expense.shares = aligned ? rows[index].shares : null;
+  });
+}
+
+function scheduleLivePreview() {
+  if (!gridLayer()) return;
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(livePreview, LIVE_PREVIEW_DELAY_MS);
+}
+
+function applyPreviewResult(result) {
+  state.plan = result.plan;
+  state.split = result.split;
+  state.parsed = result;
+  matrixStale = false;
+  attachAllocations();
+  renderWarnings(result.warnings);
   renderEditorReasoning();
+  renderPreview();
+  renderExpenseMatrix();
+}
+
+/** Recalculate after a grid edit. A response superseded by a newer edit is discarded. */
+async function livePreview() {
+  if (!state.editor) return;
+  const plan = planFromEditor();
+  const seq = ++previewSeq;
+  if (plan.expenses.some((expense) => !expense.amount)) {
+    matrixStale = true;
+    renderExpenseMatrix();
+    return;
+  }
+  try {
+    const result = await api('/api/preview', { method: 'POST', body: { plan } });
+    if (seq !== previewSeq) return;
+    applyPreviewResult(result);
+    if (result.split) show($('preview'));
+    else hide($('preview'));
+  } catch (error) {
+    if (seq !== previewSeq) return;
+    matrixStale = true;
+    renderWarnings([error.message].concat(error.details || []));
+    renderExpenseMatrix();
+  }
 }
 
 function renderEditorReasoning() {
@@ -399,6 +515,7 @@ function onParticipantInput(event) {
     expense.shared_by = expense.shared_by.map((name) => (name === oldName ? newName : name));
     if (expense.paid_by === oldName) expense.paid_by = newName;
   });
+  scheduleLivePreview();
 }
 
 function onParticipantClick(event) {
@@ -415,6 +532,7 @@ function onParticipantClick(event) {
     if (expense.paid_by === removed) expense.paid_by = '';
   });
   renderEditor();
+  scheduleLivePreview();
 }
 
 function onExpenseInput(event) {
@@ -427,6 +545,20 @@ function onExpenseInput(event) {
   if (field === 'paid_by') renderEditorReasoning();
 }
 
+/** Include or exclude one person from an expense; returns false when the last sharer would be removed. */
+function toggleExpenseShare(expense, name) {
+  if (expense.shared_by.includes(name)) {
+    if (expense.shared_by.length === 1) {
+      toast('At least one participant has to share an expense.', 'error');
+      return false;
+    }
+    expense.shared_by = expense.shared_by.filter((item) => item !== name);
+  } else {
+    expense.shared_by.push(name);
+  }
+  return true;
+}
+
 function onExpenseClick(event) {
   const toggle = event.target.closest('button[data-share-name]');
   if (toggle && state.editor) {
@@ -434,16 +566,7 @@ function onExpenseClick(event) {
     const name = toggle.dataset.shareName;
     const expense = state.editor.expenses[index];
     if (!expense) return;
-    if (expense.shared_by.includes(name)) {
-      if (expense.shared_by.length === 1) {
-        toast('At least one participant has to share an expense.', 'error');
-        return;
-      }
-      expense.shared_by = expense.shared_by.filter((item) => item !== name);
-    } else {
-      expense.shared_by.push(name);
-    }
-    renderEditor();
+    if (toggleExpenseShare(expense, name)) renderEditor();
     return;
   }
   const remove = event.target.closest('button[data-delete-expense]');
@@ -467,6 +590,7 @@ function addParticipant() {
     if (!expense.shared_by.includes(name)) expense.shared_by.push(name);
   });
   renderEditor();
+  scheduleLivePreview();
   const inputs = document.querySelectorAll('input[data-participant-index]');
   const last = inputs[inputs.length - 1];
   if (last) { last.focus(); last.select(); }
@@ -475,6 +599,8 @@ function addParticipant() {
 function addExpense() {
   if (!state.editor) return;
   state.editor.expenses.push({
+    uid: nextExpenseUid(),
+    shares: null,
     description: '',
     amount_text: '',
     paid_by: '',
@@ -491,15 +617,13 @@ async function previewFromEditor() {
   if (!state.editor) return;
   const plan = planFromEditor();
   const button = $('recalc-btn');
+  clearTimeout(previewTimer);
+  const seq = ++previewSeq;
   setBusy(button, true, 'Calculating…');
   try {
     const result = await api('/api/preview', { method: 'POST', body: { plan } });
-    state.plan = result.plan;
-    state.split = result.split;
-    state.parsed = result;
-    renderWarnings(result.warnings);
-    renderEditorReasoning();
-    renderPreview();
+    if (seq !== previewSeq) return;
+    applyPreviewResult(result);
     if (result.split) {
       show($('preview'));
       toast('Split recalculated.', 'ok');
@@ -738,6 +862,12 @@ function renderDashboard() {
   }).join('');
 
   $('share-rows').innerHTML = progress + rows;
+
+  const layer = gridLayer();
+  if (layer) {
+    show($('ledger-block'));
+    layer.renderLedger($('ledger-grid'), event, gridContext());
+  }
 }
 
 async function onShareRowClick(event) {

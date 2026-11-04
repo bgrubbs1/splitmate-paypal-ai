@@ -40,7 +40,21 @@ https://github.com/bgrubbs1/splitmate-paypal-ai
 **Built with (tags)**
 
 ```
-python, paypal, paypal-orders-v2, paypal-sandbox, oauth2, openai, gpt-4o-mini, ai, llm, nlp, fintech, payments, split-expenses, vanilla-javascript, html5, css3, rest-api, standard-library
+python, paypal, paypal-orders-v2, paypal-sandbox, oauth2, ag-grid, openai, gpt-4o-mini, ai, llm, nlp, fintech, payments, split-expenses, javascript, html5, css3, rest-api, standard-library
+```
+
+**AG Grid paragraph (add to "About the project" and to "Tools", so sponsor judges see it)**
+
+```markdown
+### AG Grid: checking the AI's work before money moves
+
+SplitMate uses AG Grid Community for the moment that matters most: a person checking AI output before anyone is asked to pay.
+
+- **Allocation matrix.** After the AI parses a plan, each row is an expense and each column is a person. Every cell shows that person's exact share in cents. Items, amounts and payers are edited in place, and clicking or pressing Space on a person's cell includes or excludes them. Each edit is recalculated by the server's exact-cent split engine, and the cells that changed flash, so you can see what your correction moved.
+- **Reconciliation you can see.** Pinned rows show each person's fair share, what they fronted, and their net position. A strip above the grid shows whether the allocation matches the total, whether net positions sum to zero, and how many PayPal orders the plan will create. Rows the AI annotated carry the parser's note as a tooltip.
+- **Payment ledger.** A second grid reports each share and its PayPal order, capture and status, with quick filtering, CSV export and cell flashes when a sync or capture changes something. It only reports: payment actions stay on the dashboard rows, and checkout links are kept out of the grid and its CSV.
+
+AG Grid Community 36.2.0 (MIT) is committed to the repo, so the app still needs no install and no network in mock mode. Features used: custom value getters and setters, select cell editors, cell class rules, pinned columns and rows, cell change flash, tooltips, quick filter, CSV export and the Theming API. AG Grid was added on November 4, 2026, during the submission period. The grids have been tested in mock mode only.
 ```
 
 > If your recorded demo used a different LLM (e.g. a local Ollama model), replace

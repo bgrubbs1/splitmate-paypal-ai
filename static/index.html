@@ -87,6 +87,21 @@
 
     <div id="warnings" class="warnings hidden" role="status" aria-live="polite"></div>
 
+    <div id="matrix-block" class="editor-block matrix-block hidden">
+      <div class="block-head">
+        <div>
+          <h3>Allocation matrix</h3>
+          <p class="block-sub">Every cell is the exact amount that person owes for that item. Edit any value or click a person's cell to include or exclude them, and the whole split recalculates to the cent.</p>
+        </div>
+        <div class="grid-tools">
+          <button id="matrix-add-expense" class="mini-btn" type="button">+ Add expense</button>
+          <button id="matrix-export" class="mini-btn" type="button">Export CSV</button>
+        </div>
+      </div>
+      <div id="grid-recon" class="recon-strip" role="status" aria-live="polite"></div>
+      <div id="review-grid" class="grid-host" aria-label="Allocation matrix: expenses by person"></div>
+    </div>
+
     <div class="editor-grid">
       <div class="editor-block">
         <div class="block-head">
@@ -94,11 +109,13 @@
           <button id="add-participant" class="mini-btn" type="button">+ Add person</button>
         </div>
         <div id="participants" class="chips"></div>
-        <div class="block-head">
-          <h3>Expenses</h3>
-          <button id="add-expense" class="mini-btn" type="button">+ Add expense</button>
+        <div id="expenses-block">
+          <div class="block-head">
+            <h3>Expenses</h3>
+            <button id="add-expense" class="mini-btn" type="button">+ Add expense</button>
+          </div>
+          <div id="expenses" class="expense-editor"></div>
         </div>
-        <div id="expenses" class="expense-editor"></div>
         <div id="ai-notes" class="ai-notes hidden">
           <h4>Notes the parser picked up</h4>
           <ul id="ai-notes-list"></ul>
@@ -160,6 +177,21 @@
     <div id="dashboard-note" class="callout hidden"></div>
     <div id="share-rows" class="share-rows"></div>
 
+    <div id="ledger-block" class="editor-block matrix-block hidden">
+      <div class="block-head">
+        <div>
+          <h3>Payment ledger</h3>
+          <p class="block-sub">An audit view of every share and its PayPal order. Changes flash when you sync or capture above. Money actions stay on the rows above; this grid only reports.</p>
+        </div>
+        <div class="grid-tools">
+          <label class="sr-only" for="ledger-filter">Filter the ledger</label>
+          <input id="ledger-filter" class="grid-filter" type="search" placeholder="Filter by person, status or order" autocomplete="off">
+          <button id="ledger-export" class="mini-btn" type="button">Export CSV</button>
+        </div>
+      </div>
+      <div id="ledger-grid" class="grid-host" aria-label="Payment ledger by person"></div>
+    </div>
+
     <p class="footnote">
       Sandbox only — no real money moves. SplitMate stores this event in memory and never
       writes names or payment data to disk. Restarting the app clears the dashboard.
@@ -190,6 +222,11 @@
         <h3>PayPal Orders v2</h3>
         <p>OAuth2 client-credentials auth, one order per debtor via <code>/v2/checkout/orders</code>, hosted checkout links, then <code>capture</code> once approved. Statuses are tracked per share, with AI-drafted reminders.</p>
       </article>
+      <article class="feature">
+        <span class="feature-icon" aria-hidden="true">▦</span>
+        <h3>AG Grid review</h3>
+        <p>AI output is checked before money moves. An AG Grid matrix shows each person's exact share of each item, lets you correct the AI in place, and shows whether the totals reconcile. A second grid is the payment ledger.</p>
+      </article>
     </div>
     <div class="mode-explain">
       <div>
@@ -208,7 +245,7 @@
   <div class="footer-inner">
     <span>SplitMate · built for the <a href="https://paypalaihackathon.devpost.com/" target="_blank" rel="noopener noreferrer">PayPal AI Hackathon</a></span>
     <span id="footer-mode" class="footer-mode">mode: —</span>
-    <span>MIT licensed · Python 3.9+ standard library · no trackers</span>
+    <span>MIT licensed · Python 3.9+ standard library · AG Grid Community · no trackers</span>
   </div>
 </footer>
 
@@ -229,6 +266,8 @@
   </div>
 </div>
 
+<script src="/static/vendor/ag-grid-community-36.2.0.min.js"></script>
+<script src="/static/grids.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>
