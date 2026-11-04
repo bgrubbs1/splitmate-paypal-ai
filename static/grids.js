@@ -190,9 +190,12 @@
         flex: 1.5,
         editable: isBody,
         sortable: true,
-        tooltipValueGetter: (params) => (isBody(params) && params.data.note ? 'AI note: ' + params.data.note : null),
+        tooltipValueGetter: (params) => {
+          if (!isBody(params) || !params.data.note) return null;
+          return (params.data.note_overridden ? 'You changed who shares this. The AI noted: ' : 'AI note: ') + params.data.note;
+        },
         cellClassRules: {
-          'cell-noted': (params) => isBody(params) && !!params.data.note,
+          'cell-noted': (params) => isBody(params) && !!params.data.note && !params.data.note_overridden,
           'cell-total': (params) => !isBody(params),
         },
       },

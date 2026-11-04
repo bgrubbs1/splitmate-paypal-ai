@@ -17,7 +17,7 @@ prototype that integrates **PayPal's developer platform (sandbox)** and an **AI 
 - **Check the AI's work before money moves:** an AG Grid allocation matrix shows each person's exact share of each item, lets you correct the AI in place, and shows whether the totals reconcile. A second AG Grid is the payment ledger.
 - **Runs offline by default:** mock mode includes a deterministic AI parser fallback and a simulated PayPal checkout, so judges can click through the whole flow with no accounts, no keys and no network.
 - **Sandbox adapter implemented, live validation pending:** configuration supports PayPal sandbox credentials and an optional LLM key. Tests use local fake services; genuine PayPal checkout/capture and external-model behavior have not been verified.
-- **Tested:** `python3 -m unittest` → 181 tests; `make test-ui` → 37 browser-code tests; `bash scripts/smoke.sh` → 56 scripted end-to-end assertions covering mock mode **and** the real HTTP path against a local fake PayPal/LLM server.
+- **Tested:** `python3 -m unittest` → 181 tests; `make test-ui` → 39 browser-code tests; `bash scripts/smoke.sh` → 56 scripted end-to-end assertions covering mock mode **and** the real HTTP path against a local fake PayPal/LLM server.
 
 ![SplitMate](docs/cover.png)
 
@@ -91,7 +91,7 @@ Run the test suite and the one-command smoke proof:
 
 ```bash
 python3 -m unittest discover -s tests -t .   # 181 tests
-make test-ui                                 # 37 browser-code tests (needs Node.js, no packages)
+make test-ui                                 # 39 browser-code tests (needs Node.js, no packages)
 bash scripts/smoke.sh                        # or: make smoke   (56 assertions)
 ```
 
@@ -250,7 +250,7 @@ contest-entries/paypal/
 ├── samples/                    # deterministic demo plan + expected split
 ├── scripts/smoke.sh            # one-command end-to-end proof
 ├── scripts/smoke_client.py     # scripted smoke assertions
-├── tests/                      # 181 unittest tests + 37 browser-code tests
+├── tests/                      # 181 unittest tests + 39 browser-code tests
 ├── docs/screenshots/           # app screenshots (also handy as a Devpost thumbnail)
 ├── README.md · SUBMISSION.md · RUNBOOK.md · RULES-NOTES.md
 ├── LICENSE (MIT) · .env.example · .gitignore · Makefile
@@ -367,7 +367,7 @@ and `Referrer-Policy: no-referrer`.
 # PayPal request shapes/OAuth/capture/errors, HTTP endpoints and security hardening.
 python3 -m unittest discover -s tests -t . -v
 
-# 37 tests of the real browser code against a fake DOM, fake AG Grid and fake HTTP.
+# 39 tests of the real browser code against a fake DOM, fake AG Grid and fake HTTP.
 # Needs Node.js 18+ but no packages.
 make test-ui
 
@@ -404,7 +404,7 @@ What the tests cover, briefly:
 
 ## Limitations / unverified details
 
-- **Verification boundary:** 181 Python tests, 56 local fake-service smoke assertions and 37 UI logic tests exercise implemented behavior. They are not evidence of genuine PayPal sandbox approval/capture or external LLM quality. The AG Grid views were also driven in a real Chromium browser, in mock mode only; other browsers, assistive technology and a live PayPal run have not been tested.
+- **Verification boundary:** 181 Python tests, 56 local fake-service smoke assertions and 39 UI logic tests exercise implemented behavior. They are not evidence of genuine PayPal sandbox approval/capture or external LLM quality. The AG Grid views were also driven in a real Chromium browser, in mock mode only; other browsers, assistive technology and a live PayPal run have not been tested.
 - **Capture safety:** pending, failed, unknown or inconsistent capture observations are held for read-only reconciliation and do not count as completed payments. Never restart/recreate an event to bypass a hold. In-memory state is not restart-safe.
 
 - Creating orders and capturing were verified against the published PayPal Orders v2

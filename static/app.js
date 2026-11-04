@@ -318,7 +318,8 @@ function planFromEditor() {
       amount: String(expense.amount_text || '').trim(),
       paid_by: expense.paid_by || null,
       shared_by: shared,
-      note: expense.note || '',
+      // The parser's note explains who it included, so it no longer applies once a person changes that.
+      note: expense.note_overridden ? '' : expense.note || '',
     };
   });
   return {
@@ -556,6 +557,7 @@ function toggleExpenseShare(expense, name) {
   } else {
     expense.shared_by.push(name);
   }
+  expense.note_overridden = true;
   return true;
 }
 

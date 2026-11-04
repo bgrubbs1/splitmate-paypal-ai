@@ -223,6 +223,29 @@ test('the last sharer of an expense cannot be removed from the matrix', () => {
   assert.match(instance.element('toast').textContent, /At least one participant/);
 });
 
+test('changing who shares an expense retires the AI note from the plan but keeps it as history', () => {
+  const instance = harness({ routes: { '/api/preview': { plan: PLAN, split: SPLIT, warnings: [] } } });
+  instance.setPlan(PLAN, SPLIT);
+  const item = column(instance, 'description');
+  const row = instance.run('state.editor.expenses[0]');
+  assert.equal(instance.run('planFromEditor().expenses[0].note'), 'Both ate');
+  assert.equal(item.tooltipValueGetter({ data: row }), 'AI note: Both ate');
+  assert.equal(item.cellClassRules['cell-noted']({ data: row }), true);
+
+  instance.run('gridContext()').toggleShare(row, 'Sam');
+  assert.equal(instance.run('planFromEditor().expenses[0].note'), '');
+  assert.equal(item.tooltipValueGetter({ data: row }), 'You changed who shares this. The AI noted: Both ate');
+  assert.equal(item.cellClassRules['cell-noted']({ data: row }), false);
+});
+
+test('a refused toggle leaves the AI note in force', () => {
+  const instance = harness({ routes: { '/api/preview': { plan: PLAN, split: SPLIT, warnings: [] } } });
+  const solo = { ...PLAN, expenses: [{ ...PLAN.expenses[0], shared_by: ['Alex'] }] };
+  instance.setPlan(solo, SPLIT);
+  instance.run('gridContext()').toggleShare(instance.run('state.editor.expenses[0]'), 'Alex');
+  assert.equal(instance.run('planFromEditor().expenses[0].note'), 'Both ate');
+});
+
 test('rows misaligned with the server split show no money rather than wrong money', () => {
   const instance = harness();
   const twoRows = { ...PLAN, expenses: [PLAN.expenses[0], { ...PLAN.expenses[0], description: 'Taxi' }] };
