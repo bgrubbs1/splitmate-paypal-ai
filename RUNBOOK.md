@@ -20,7 +20,8 @@ copy and the video script see [SUBMISSION.md](SUBMISSION.md).
 ## 2. 60-second verification (mock mode)
 
 ```bash
-cd contest-entries/paypal
+git clone https://github.com/bgrubbs1/splitmate-paypal-ai.git
+cd splitmate-paypal-ai
 python3 app.py
 # → SplitMate is running at http://127.0.0.1:8000
 #   PayPal: MOCK (fully offline demo)
@@ -79,7 +80,7 @@ finishes. It does not touch port 8000.
 ### 3.2 Configure and start
 
 ```bash
-cd contest-entries/paypal
+# From the repository root (the folder containing app.py):
 cp .env.example .env
 # Edit .env:
 #   PAYPAL_CLIENT_ID=...
@@ -145,7 +146,7 @@ show the sandbox checkout page and the dashboard status transition after capture
 ## 5. Publish the repo (user step)
 
 ```bash
-cd contest-entries/paypal
+# From the repository root (the folder containing app.py):
 git init -b main
 git add .
 git commit -m "SplitMate: AI group-expense agent on PayPal Orders v2 (sandbox)"
@@ -192,7 +193,7 @@ Checklist with times is in [SUBMISSION.md §4](SUBMISSION.md). Order that works 
 | `PayPal authentication failed. Check PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET` | Wrong/rotated credentials, or you copied **Live** credentials while `PAYPAL_BASE_URL` points at the sandbox (or vice-versa). Use the Sandbox tab credentials with `https://api-m.sandbox.paypal.com`. |
 | `PayPal denied the request (HTTP 403)` | The sandbox app doesn't have the capability needed, or credentials are from a different environment. Check you copied Sandbox credentials, or recreate the sandbox app. |
 | `The buyer has not approved this order yet` (409) | Normal: PayPal requires buyer approval before capture. Open the checkout link, pay with the sandbox buyer account, then Sync → Capture. |
-| `PayPal could not capture the order. It may already be captured, cancelled, or not approved yet.` | Check the share's order status with **Sync**; capture is idempotent in our client but a cancelled/voided order can't be captured. Create a new event if needed. |
+| `PayPal could not capture the order. It may already be captured, cancelled, or not approved yet.` | Use **Sync** to read the existing order. If the outcome remains unresolved, review it in the provider account. Do not repeat capture, create a replacement event/order, or restart to bypass the hold. See [Capture outcomes and reconciliation contract](docs/CAPTURE-OUTCOMES.md). |
 | Returning from PayPal lands on the app but nothing auto-captures | PayPal did not append an order identifier we could read. Just click **Sync all** then **Capture approved** on the dashboard — the flow is fully supported that way. |
 | AI parse warning "AI parsing was unavailable … used the built-in deterministic parser" | LLM key/URL/model wrong, provider down, or `response_format` unsupported. The app still works; fix `LLM_*` values or leave it (mock parser is deterministic). Check the log line, never the key. |
 | `POST /api/parse` returns 400 "No expenses found" | The text had no amounts. Use the demo plan or one expense per line: `Cabin $620 paid by Alex`. |
@@ -207,7 +208,10 @@ and configuration notes are printed at startup. No secrets are printed.
 
 ## 8. Resetting / clean state
 
-- Restart `python3 app.py` — all events are in memory; a restart clears the dashboard.
+- For an offline mock demo, restart `python3 app.py` to clear the dashboard.
+- In configured sandbox mode, first reconcile every payment outcome. Restarting loses all
+  event and reconciliation state. Never restart or recreate an event/order to bypass an
+  unresolved payment hold; use **Sync** and, if necessary, manual provider-account review.
 - Delete `.env` (or blank the credentials) to return to mock mode.
 - `make clean` removes Python bytecode caches.
 - The fake servers used by tests/smoke are stateless per process; `Ctrl+C` stops everything.
@@ -231,7 +235,7 @@ and configuration notes are printed at startup. No secrets are printed.
 ## 10. One-page pre-submit checklist
 
 ```bash
-cd contest-entries/paypal
+# From the repository root (the folder containing app.py):
 python3 -m unittest discover -s tests -t . -q      # Ran 151 tests ... OK
 bash scripts/smoke.sh                              # SMOKE PASS
 git ls-files | grep -E '(^|/)\.env$' || echo "ok: no .env tracked"

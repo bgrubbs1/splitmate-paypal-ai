@@ -78,7 +78,8 @@ handles the money movement. The human stays in the loop and only approves a spli
 ## Quickstart (mock mode — offline, no accounts)
 
 ```bash
-cd contest-entries/paypal
+git clone https://github.com/bgrubbs1/splitmate-paypal-ai.git
+cd splitmate-paypal-ai
 python3 app.py
 # open http://127.0.0.1:8000
 ```
@@ -172,7 +173,8 @@ example placeholders are treated as unset, so the app still starts safely in moc
 ```
 
 No frameworks, no databases, no third-party packages. State lives in memory by design: the
-demo persists no personal data to disk, and restarting gives a clean dashboard.
+demo persists no personal data to disk. Restarting clears all event and reconciliation
+state; do not restart while any payment outcome is unresolved.
 
 ### The AI part
 
@@ -231,7 +233,7 @@ simulation.
 ### Project structure
 
 ```text
-contest-entries/paypal/
+splitmate-paypal-ai/
 ├── app.py                      # entry point: python3 app.py
 ├── splitmate/                  # stdlib-only application package
 │   ├── config.py               # env/.env configuration and modes
@@ -393,7 +395,8 @@ What the tests cover, briefly:
 ## Security & privacy
 
 - No accounts, no analytics, no trackers, no third-party frontend resources.
-- Event data (names, amounts) lives in memory only; nothing is persisted to disk. Restart = wipe.
+- Event data (names, amounts) lives in memory only; nothing is persisted to disk. Restart = wipe,
+  including reconciliation state. Do not restart while any payment outcome is unresolved.
 - Capture observations retain selected order/capture IDs, statuses, amounts, currencies and validation diagnostics in memory. Payer email/address fields are not copied. Nonfinite numbers and object/array values in scalar evidence fields become typed markers; see [capture contract](docs/CAPTURE-OUTCOMES.md).
 - Credentials come from environment variables / a gitignored `.env`; they are never logged,
   never returned by `/api/health`, and redacted from error messages.
